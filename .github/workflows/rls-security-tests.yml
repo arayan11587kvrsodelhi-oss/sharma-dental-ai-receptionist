@@ -1,0 +1,75 @@
+name: RLS Security Integration Tests
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+jobs:
+  rls-tests:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: sharma_dental_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install PostgreSQL client
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+
+      - name: Create test database and roles
+        run: |
+          psql -h localhost -U postgres -d postgres -c "CREATE DATABASE sharma_dental_test;"
+          psql -h localhost -U postgres -d sharma_dental_test -c "CREATE ROLE anon NOLOGIN;"
+          psql -h localhost -U postgres -d sharma_dental_test -c "CREATE ROLE authenticated NOLOGIN;"
+          psql -h localhost -U postgres -d sharma_dental_test -c "CREATE ROLE service_role NOLOGIN SUPERUSER;"
+
+      - name: Run migrations
+        run: |
+          for f in $(ls supabase/migrations/*.sql | sort); do
+            echo "Running migration: $f"
+            psql -h localhost -U postgres -d sharma_dental_test -f "$f" || exit 1
+          done
+
+      - name: Verify RLS enabled on all tables
+        run: |
+          psql -h localhost -U postgres -d sharma_dental_test -c "
+            SELECT tablename, rowsecurity
+            FROM pg_tables
+            WHERE schemaname = 'public'
+            ORDER BY tablename;
+          "
+
+      - name: Run security integration tests
+        run: |
+          psql -h localhost -U postgres -d sharma_dental_test -f tests/rls_security_tests.sql
+
+      - name: Verify table privileges
+        run: |
+          psql -h localhost -U postgres -d sharma_dental_test -c "
+            SELECT
+              relname as table_name,
+              has_table_privilege('anon', relname, 'TRUNCATE') as anon_truncate,
+              has_table_privilege('anon', relname, 'REFERENCES') as anon_references,
+              has_table_privilege('authenticated', relname, 'TRUNCATE') as auth_truncate,
+              has_table_privilege('authenticated', relname, 'REFERENCES') as auth_references
+            FROM pg_class c
+            JOIN pg_namespace n ON n.oid = c.relnamespace
+            WHERE n.nspname = 'public'
+            AND c.relkind = 'r'
+            ORDER BY relname;
+          "

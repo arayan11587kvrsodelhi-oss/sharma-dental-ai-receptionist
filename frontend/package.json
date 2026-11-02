@@ -1,0 +1,30 @@
+{
+  "name": "sharma-dental-ai",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "next": "14.2.4",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "lucide-react": "^0.333.0",
+    "tailwindcss": "^3.4.1",
+    "postcss": "^8.4.31",
+    "autoprefixer": "^10.4.15",
+    "axios": "^1.7.2",
+    "@types/react": "^18.3.3",
+    "@types/react-dom": "^18.3.0",
+    "typescript": "^5.5.2"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.2",
+    "eslint": "^8.57.0",
+    "eslint-config-next": "^14.2.4"
+  }
+}

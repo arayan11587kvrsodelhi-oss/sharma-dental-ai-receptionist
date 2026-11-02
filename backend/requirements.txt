@@ -1,0 +1,13 @@
+# Backend dependencies for Sharma Dental AI
+fastapi==0.110.0
+uvicorn[standard]==0.29.0
+pydantic==2.7.0
+pydantic-settings==2.3.0
+supabase==2.0.0
+python-dotenv==1.0.1
+httpx==0.27.0
+passlib[bcrypt]==1.7.4
+python-jose[cryptography]==3.3.0
+cryptography==42.0.5
+email-validator==2.1.0
+slowapi==0.1.9
