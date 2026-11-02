@@ -1,3 +1,4 @@
+
 name: RLS Security Integration Tests
 
 on:
@@ -10,16 +11,24 @@ jobs:
   rls-tests:
     runs-on: ubuntu-latest
 
+    env:
+      PGHOST: localhost
+      PGPORT: 5432
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: sharma_dental_test
+
     services:
       postgres:
         image: postgres:17
         env:
+          POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
           POSTGRES_DB: sharma_dental_test
         ports:
           - 5432:5432
         options: >-
-          --health-cmd pg_isready
+          --health-cmd "pg_isready -U postgres -d sharma_dental_test"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
@@ -29,25 +38,39 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Install PostgreSQL client
-        run: sudo apt-get update && sudo apt-get install -y postgresql-client
-
-      - name: Create test database and roles
         run: |
-          psql -h localhost -U postgres -d postgres -c "CREATE DATABASE sharma_dental_test;"
-          psql -h localhost -U postgres -d sharma_dental_test -c "CREATE ROLE anon NOLOGIN;"
-          psql -h localhost -U postgres -d sharma_dental_test -c "CREATE ROLE authenticated NOLOGIN;"
-          psql -h localhost -U postgres -d sharma_dental_test -c "CREATE ROLE service_role NOLOGIN SUPERUSER;"
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+
+      - name: Verify PostgreSQL connection
+        run: |
+          psql -v ON_ERROR_STOP=1 -d postgres \
+            -c "SELECT version();"
+
+      - name: Create test roles
+        run: |
+          psql -v ON_ERROR_STOP=1 -c \
+            "CREATE ROLE anon NOLOGIN;"
+
+          psql -v ON_ERROR_STOP=1 -c \
+            "CREATE ROLE authenticated NOLOGIN;"
+
+          psql -v ON_ERROR_STOP=1 -c \
+            "CREATE ROLE service_role NOLOGIN BYPASSRLS;"
 
       - name: Run migrations
+        shell: bash
         run: |
-          for f in $(ls supabase/migrations/*.sql | sort); do
+          set -euo pipefail
+
+          for f in supabase/migrations/*.sql; do
             echo "Running migration: $f"
-            psql -h localhost -U postgres -d sharma_dental_test -f "$f" || exit 1
+            psql -v ON_ERROR_STOP=1 -f "$f"
           done
 
-      - name: Verify RLS enabled on all tables
+      - name: Verify RLS enabled on all public tables
         run: |
-          psql -h localhost -U postgres -d sharma_dental_test -c "
+          psql -v ON_ERROR_STOP=1 -c "
             SELECT tablename, rowsecurity
             FROM pg_tables
             WHERE schemaname = 'public'
@@ -56,20 +79,21 @@ jobs:
 
       - name: Run security integration tests
         run: |
-          psql -h localhost -U postgres -d sharma_dental_test -f tests/rls_security_tests.sql
+          psql -v ON_ERROR_STOP=1 \
+            -f tests/rls_security_tests.sql
 
       - name: Verify table privileges
         run: |
-          psql -h localhost -U postgres -d sharma_dental_test -c "
+          psql -v ON_ERROR_STOP=1 -c "
             SELECT
-              relname as table_name,
-              has_table_privilege('anon', relname, 'TRUNCATE') as anon_truncate,
-              has_table_privilege('anon', relname, 'REFERENCES') as anon_references,
-              has_table_privilege('authenticated', relname, 'TRUNCATE') as auth_truncate,
-              has_table_privilege('authenticated', relname, 'REFERENCES') as auth_references
+              relname AS table_name,
+              has_table_privilege('anon', c.oid, 'TRUNCATE') AS anon_truncate,
+              has_table_privilege('anon', c.oid, 'REFERENCES') AS anon_references,
+              has_table_privilege('authenticated', c.oid, 'TRUNCATE') AS auth_truncate,
+              has_table_privilege('authenticated', c.oid, 'REFERENCES') AS auth_references
             FROM pg_class c
             JOIN pg_namespace n ON n.oid = c.relnamespace
             WHERE n.nspname = 'public'
-            AND c.relkind = 'r'
+              AND c.relkind = 'r'
             ORDER BY relname;
           "
